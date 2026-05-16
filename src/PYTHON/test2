@@ -286,7 +286,37 @@ def create_pull_request(o_branch, u_branch, jira_id):
         f'--body "Automated PR created by SRA Agent"'
     )
 
-    run_command(command, LOCAL_REPO)
+    result = subprocess.run(
+        command,
+        shell=True,
+        cwd=LOCAL_REPO,
+        text=True,
+        capture_output=True
+    )
+
+    if result.stdout:
+        print(result.stdout)
+
+    if result.stderr:
+        print(result.stderr)
+
+    # PRINT CLEAN PR LINK
+    if "https://github.com" in result.stdout:
+
+        pr_link = ""
+
+        for line in result.stdout.splitlines():
+
+            if "https://github.com" in line:
+                pr_link = line.strip()
+
+        banner("PULL REQUEST CREATED")
+
+        print(f"\nPR LINK => {pr_link}\n")
+
+    else:
+
+        banner("PR CREATION FAILED")
 
 # =========================================================
 # MAIN
