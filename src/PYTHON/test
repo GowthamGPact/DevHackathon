@@ -1,0 +1,359 @@
+import os
+import json
+import shutil
+import subprocess
+from datetime import datetime
+
+# =========================================================
+# LOAD CONFIG
+# =========================================================
+
+with open("config.json", "r") as f:
+    CONFIG = json.load(f)
+
+REPO_URL = CONFIG["repo_path"]
+LOCAL_REPO = CONFIG["local_repo_path"]
+OUTPUT_DIR = CONFIG["output_folder"]
+DEFAULT_BRANCH = CONFIG["default_branch"]
+
+# =========================================================
+# UTILS
+# =========================================================
+
+def run(cmd, cwd=None):
+    print(f"\nRUNNING => {cmd}")
+
+    result = subprocess.run(
+        cmd,
+        shell=True,
+        cwd=cwd,
+        text=True
+    )
+
+    if result.returncode != 0:
+        print(f"\nFAILED => {cmd}")
+
+    return result.returncode
+
+
+def banner(msg):
+    print("\n" + "=" * 70)
+    print(msg)
+    print("=" * 70)
+
+
+# =========================================================
+# GIT OPERATIONS
+# =========================================================
+
+def clone_or_pull_repo():
+
+    banner("REPOSITORY SETUP")
+
+    if not os.path.exists(LOCAL_REPO):
+
+        run(f"git clone {REPO_URL} {LOCAL_REPO}")
+
+    else:
+
+        run("git checkout main", cwd=LOCAL_REPO)
+        run("git pull origin main", cwd=LOCAL_REPO)
+
+
+def create_branch(branch):
+
+    banner(f"CREATING BRANCH : {branch}")
+
+    run("git checkout main", cwd=LOCAL_REPO)
+
+    run(f"git checkout -B {branch}", cwd=LOCAL_REPO)
+
+
+def commit_changes(branch, message):
+
+    banner(f"COMMITTING : {branch}")
+
+    run("git add .", cwd=LOCAL_REPO)
+
+    subprocess.run(
+        "git diff --cached --quiet",
+        shell=True,
+        cwd=LOCAL_REPO
+    )
+
+    run(f'git commit -m "{message}"', cwd=LOCAL_REPO)
+
+
+def push_branch(branch):
+
+    banner(f"PUSHING BRANCH : {branch}")
+
+    run(f"git push -u origin {branch}", cwd=LOCAL_REPO)
+
+
+# =========================================================
+# PR CREATION
+# =========================================================
+
+def create_pull_request(source, target, title):
+
+    banner("CREATING PULL REQUEST")
+
+    cmd = (
+        f'gh pr create '
+        f'--base {target} '
+        f'--head {source} '
+        f'--title "{title}" '
+        f'--body "Automated PR created by SRA Agent"'
+    )
+
+    run(cmd, cwd=LOCAL_REPO)
+
+
+# =========================================================
+# GENERATION
+# =========================================================
+
+def ensure_dirs():
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    cobol_dir = os.path.join(LOCAL_REPO, "src", "COBOL")
+    jcl_dir = os.path.join(LOCAL_REPO, "src", "JCL")
+    copybook_dir = os.path.join(LOCAL_REPO, "src", "COPYBOOK")
+
+    os.makedirs(cobol_dir, exist_ok=True)
+    os.makedirs(jcl_dir, exist_ok=True)
+    os.makedirs(copybook_dir, exist_ok=True)
+
+    return cobol_dir, jcl_dir, copybook_dir
+
+
+def generate_cobol(jira_id, requirement, impacts):
+
+    cobol_dir, _, _ = ensure_dirs()
+
+    filename = os.path.join(cobol_dir, f"{jira_id}.cbl")
+
+    content = f"""
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. {jira_id.replace('-', '')}.
+
+       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       WORKING-STORAGE SECTION.
+
+       01 WS-CUSTOMER-ID        PIC X(10).
+       01 WS-STATUS             PIC X(01).
+
+       PROCEDURE DIVISION.
+
+           DISPLAY 'PROCESS STARTED'.
+
+           PERFORM VALIDATE-CUSTOMER.
+
+           DISPLAY 'PROCESS COMPLETED'.
+
+           STOP RUN.
+
+       VALIDATE-CUSTOMER.
+
+           IF WS-CUSTOMER-ID = SPACES
+               MOVE 'E' TO WS-STATUS
+           ELSE
+               MOVE 'S' TO WS-STATUS
+           END-IF.
+
+    """
+
+    with open(filename, "w") as f:
+        f.write(content)
+
+    print(f"\nCOBOL GENERATED => {filename}")
+
+
+def generate_jcl(jira_id):
+
+    _, jcl_dir, _ = ensure_dirs()
+
+    filename = os.path.join(jcl_dir, f"{jira_id}.jcl")
+
+    content = f"""
+//{jira_id[:8]} JOB (ACCT),'SRA'
+//STEP01 EXEC PGM={jira_id.replace('-', '')}
+//SYSOUT DD SYSOUT=*
+//SYSPRINT DD SYSOUT=*
+    """
+
+    with open(filename, "w") as f:
+        f.write(content)
+
+    print(f"\nJCL GENERATED => {filename}")
+
+
+def generate_copybook(jira_id):
+
+    _, _, copybook_dir = ensure_dirs()
+
+    filename = os.path.join(copybook_dir, f"{jira_id}.cpy")
+
+    content = """
+       01 CUSTOMER-RECORD.
+          05 CUSTOMER-ID         PIC X(10).
+          05 CUSTOMER-NAME       PIC X(30).
+          05 CUSTOMER-STATUS     PIC X(01).
+    """
+
+    with open(filename, "w") as f:
+        f.write(content)
+
+    print(f"\nCOPYBOOK GENERATED => {filename}")
+
+
+def generate_testcases(jira_id, requirement):
+
+    filename = os.path.join(LOCAL_REPO, "TEST_CASES.txt")
+
+    content = f"""
+TEST CASES FOR {jira_id}
+
+1. VALID CUSTOMER RECORD
+2. INVALID CUSTOMER RECORD
+3. EMPTY INPUT FILE
+4. DUPLICATE CUSTOMER VALIDATION
+5. STATUS UPDATE VALIDATION
+    """
+
+    with open(filename, "w") as f:
+        f.write(content)
+
+    print(f"\nTEST CASES GENERATED => {filename}")
+
+
+def generate_documentation(jira_id, requirement, impacts):
+
+    filename = os.path.join(LOCAL_REPO, "IMPLEMENTATION_SUMMARY.md")
+
+    content = f"""
+# IMPLEMENTATION SUMMARY
+
+## JIRA
+{jira_id}
+
+## REQUIREMENT
+{requirement}
+
+## IMPACTS
+{impacts}
+
+## GENERATED COMPONENTS
+
+- COBOL
+- JCL
+- COPYBOOK
+- TEST CASES
+
+## GENERATED BY
+SRA AGENT
+    """
+
+    with open(filename, "w") as f:
+        f.write(content)
+
+    print(f"\nDOCUMENTATION GENERATED => {filename}")
+
+
+# =========================================================
+# MAIN FLOW
+# =========================================================
+
+def main():
+
+    banner("SRA AGENT STARTED")
+
+    jira_id = input("Enter JIRA ID: ").strip()
+
+    requirement = input("Enter Requirement: ").strip()
+
+    impacts = input("Enter Impacts: ").strip()
+
+    clone_or_pull_repo()
+
+    # =====================================================
+    # O BRANCH
+    # =====================================================
+
+    o_branch = f"{jira_id}-O"
+
+    create_branch(o_branch)
+
+    generate_cobol(jira_id, requirement, impacts)
+
+    generate_jcl(jira_id)
+
+    generate_copybook(jira_id)
+
+    generate_testcases(jira_id, requirement)
+
+    generate_documentation(jira_id, requirement, impacts)
+
+    commit_changes(
+        o_branch,
+        f"{jira_id} automated O changes"
+    )
+
+    push_branch(o_branch)
+
+    # =====================================================
+    # U BRANCH
+    # =====================================================
+
+    u_branch = f"{jira_id}-U"
+
+    create_branch(u_branch)
+
+    update_file = os.path.join(
+        LOCAL_REPO,
+        "UPDATED_LOGIC.txt"
+    )
+
+    with open(update_file, "w") as f:
+
+        f.write("""
+UPDATED LOGIC
+
+- Added duplicate validation
+- Added scheduler trigger
+- Added downstream integration
+- Added error handling
+""")
+
+    commit_changes(
+        u_branch,
+        f"{jira_id} automated U changes"
+    )
+
+    push_branch(u_branch)
+
+    # =====================================================
+    # PR CREATION
+    # =====================================================
+
+    create_pull_request(
+        u_branch,
+        o_branch,
+        f"{jira_id} Auto PR"
+    )
+
+    banner("PROCESS COMPLETED")
+
+    print(f"\nO Branch => {o_branch}")
+    print(f"U Branch => {u_branch}")
+
+
+# =========================================================
+
+if __name__ == "__main__":
+    main()
