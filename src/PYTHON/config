@@ -1,0 +1,26 @@
+{
+    "repo_path": "https://github.com/YOUR_USERNAME/YOUR_REPO.git",
+
+    "local_repo_path": "cloned_repo",
+
+    "output_folder": "generated_output",
+
+    "default_branch": "main",
+
+    "author": "SRA-Agent",
+
+    "git": {
+        "auto_pull": true,
+        "auto_commit": true,
+        "auto_push": false
+    },
+
+    "templates": {
+        "batch_program": "SRABATCH",
+        "online_program": "SRACICS"
+    },
+
+    "jira": {
+        "project_prefix": "SRA"
+    }
+}
