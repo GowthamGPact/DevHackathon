@@ -11,12 +11,8 @@ from datetime import datetime
 # CONFIGURATION
 # -----------------------------
 
-CONFIG = {
-    "repo_path": ".",
-    "output_folder": "generated_output",
-    "default_branch": "main",
-    "author": "SRA-Agent"
-}
+with open("config.json", "r") as f:
+    CONFIG = json.load(f)
 
 # -----------------------------
 # UTILITY
