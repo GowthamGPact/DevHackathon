@@ -14,26 +14,53 @@ from datetime import datetime
 with open("config.json", "r") as f:
     CONFIG = json.load(f)
 
+
+def clone_repo():
+
+    repo_url = CONFIG["repo_url"]
+    local_path = CONFIG["local_repo_path"]
+
+    if os.path.exists(local_path):
+
+        print("\nRepository already exists locally")
+
+    else:
+
+        print("\nCloning repository...\n")
+
+        out, err = run_command(
+            f"git clone {repo_url} {local_path}",
+            cwd="."
+        )
+
+        print(out)
+
+        if err:
+            print(err)
+            
 # -----------------------------
 # UTILITY
 # -----------------------------
 
-def run_command(command):
+def run_command(command, cwd=None):
+
+    if cwd is None:
+        cwd = CONFIG["local_repo_path"]
 
     result = subprocess.run(
         command,
         shell=True,
         capture_output=True,
         text=True,
-        cwd=CONFIG["repo_path"]
+        cwd=cwd
     )
 
     return result.stdout.strip(), result.stderr.strip()
-
-
+    
 # -----------------------------
 # GIT VALIDATION
 # -----------------------------
+clone_repo()
 
 def validate_git():
 
