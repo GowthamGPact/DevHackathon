@@ -1,0 +1,352 @@
+import os
+import json
+import shutil
+import subprocess
+from pathlib import Path
+
+# =========================================================
+# LOAD CONFIG
+# =========================================================
+
+with open("config.json", "r") as f:
+    CONFIG = json.load(f)
+
+REPO_URL = CONFIG["repo_path"]
+LOCAL_REPO = CONFIG["local_repo_path"]
+MAIN_BRANCH = CONFIG["default_branch"]
+
+# =========================================================
+# UTILITY
+# =========================================================
+
+def banner(msg):
+    print("\n" + "=" * 70)
+    print(msg)
+    print("=" * 70)
+
+def run_command(command, cwd=None):
+    print(f"\nRUNNING => {command}")
+
+    result = subprocess.run(
+        command,
+        shell=True,
+        cwd=cwd,
+        text=True,
+        capture_output=True
+    )
+
+    if result.stdout:
+        print(result.stdout)
+
+    if result.stderr:
+        print(result.stderr)
+
+    return result
+
+# =========================================================
+# CLONE REPOSITORY
+# =========================================================
+
+def clone_repo():
+
+    if not os.path.exists(LOCAL_REPO):
+
+        banner("CLONING REPOSITORY")
+
+        run_command(
+            f"git clone {REPO_URL} {LOCAL_REPO}"
+        )
+
+    else:
+        banner("REPOSITORY ALREADY EXISTS")
+
+# =========================================================
+# CHECKOUT MAIN
+# =========================================================
+
+def checkout_main():
+
+    banner("CHECKOUT MAIN")
+
+    run_command(
+        f"git checkout {MAIN_BRANCH}",
+        LOCAL_REPO
+    )
+
+    run_command(
+        "git pull",
+        LOCAL_REPO
+    )
+
+# =========================================================
+# CREATE U BRANCH
+# =========================================================
+
+def create_u_branch(u_branch):
+
+    banner(f"CREATING U BRANCH => {u_branch}")
+
+    run_command(
+        f"git checkout {MAIN_BRANCH}",
+        LOCAL_REPO
+    )
+
+    run_command(
+        f"git checkout -B {u_branch}",
+        LOCAL_REPO
+    )
+
+    run_command(
+        f"git push -u origin {u_branch}",
+        LOCAL_REPO
+    )
+
+# =========================================================
+# CREATE O BRANCH
+# =========================================================
+
+def create_o_branch(o_branch):
+
+    banner(f"CREATING O BRANCH => {o_branch}")
+
+    run_command(
+        f"git checkout {MAIN_BRANCH}",
+        LOCAL_REPO
+    )
+
+    run_command(
+        f"git checkout -B {o_branch}",
+        LOCAL_REPO
+    )
+
+# =========================================================
+# GENERATE FILES
+# =========================================================
+
+def generate_files(jira_id, requirement, impacts):
+
+    banner("GENERATING FILES")
+
+    generated_path = os.path.join(
+        LOCAL_REPO,
+        "generated_output",
+        jira_id
+    )
+
+    os.makedirs(generated_path, exist_ok=True)
+
+    # COBOL PROGRAM
+
+    cobol_code = f"""
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SRABATCH.
+
+       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       WORKING-STORAGE SECTION.
+       01 WS-END             PIC X VALUE 'N'.
+
+       PROCEDURE DIVISION.
+
+           DISPLAY 'PROCESS STARTED'.
+
+           PERFORM UNTIL WS-END = 'Y'
+
+               DISPLAY 'VALIDATING CUSTOMER RECORD'
+
+               MOVE 'Y' TO WS-END
+
+           END-PERFORM.
+
+           DISPLAY 'PROCESS COMPLETED'.
+
+           STOP RUN.
+    """
+
+    with open(
+        os.path.join(generated_path, "SRABATCH.cbl"),
+        "w"
+    ) as f:
+        f.write(cobol_code)
+
+    # JCL
+
+    jcl = f"""
+//{jira_id} JOB (123),'SRA'
+//STEP01 EXEC PGM=SRABATCH
+//SYSOUT DD SYSOUT=*
+"""
+
+    with open(
+        os.path.join(generated_path, "SRABATCH.jcl"),
+        "w"
+    ) as f:
+        f.write(jcl)
+
+    # TEST CASES
+
+    tests = f"""
+TEST CASES
+
+1. Validate valid customer record
+2. Validate duplicate customer record
+3. Validate invalid file layout
+4. Validate downstream integration
+"""
+
+    with open(
+        os.path.join(generated_path, "TEST_CASES.txt"),
+        "w"
+    ) as f:
+        f.write(tests)
+
+    # IMPACT FILE
+
+    impact_file = f"""
+JIRA ID:
+{jira_id}
+
+REQUIREMENT:
+{requirement}
+
+IMPACTS:
+{impacts}
+"""
+
+    with open(
+        os.path.join(generated_path, "IMPACT_ANALYSIS.txt"),
+        "w"
+    ) as f:
+        f.write(impact_file)
+
+    # README
+
+    readme = f"""
+# {jira_id}
+
+Requirement:
+{requirement}
+
+Impacts:
+{impacts}
+"""
+
+    with open(
+        os.path.join(generated_path, "README.md"),
+        "w"
+    ) as f:
+        f.write(readme)
+
+# =========================================================
+# COMMIT CHANGES
+# =========================================================
+
+def commit_changes(jira_id):
+
+    banner("COMMITTING CHANGES")
+
+    run_command(
+        "git add .",
+        LOCAL_REPO
+    )
+
+    run_command(
+        f'git commit -m "{jira_id} automated changes"',
+        LOCAL_REPO
+    )
+
+# =========================================================
+# PUSH O BRANCH
+# =========================================================
+
+def push_o_branch(o_branch):
+
+    banner(f"PUSHING O BRANCH => {o_branch}")
+
+    run_command(
+        f"git push -u origin {o_branch}",
+        LOCAL_REPO
+    )
+
+# =========================================================
+# CREATE PR
+# =========================================================
+
+def create_pull_request(o_branch, u_branch, jira_id):
+
+    banner("CREATING PULL REQUEST")
+
+    command = (
+        f'gh pr create '
+        f'--base {u_branch} '
+        f'--head {o_branch} '
+        f'--title "{jira_id} Auto PR" '
+        f'--body "Automated PR created by SRA Agent"'
+    )
+
+    run_command(command, LOCAL_REPO)
+
+# =========================================================
+# MAIN
+# =========================================================
+
+def main():
+
+    banner("SRA AGENT STARTED")
+
+    jira_id = input("Enter JIRA ID: ").strip().upper()
+
+    requirement = input(
+        "Enter Requirement: "
+    ).strip()
+
+    impacts = input(
+        "Enter Impacts: "
+    ).strip()
+
+    o_branch = f"{jira_id}-O"
+    u_branch = f"{jira_id}-U"
+
+    # STEP 1
+    clone_repo()
+
+    # STEP 2
+    checkout_main()
+
+    # STEP 3
+    create_u_branch(u_branch)
+
+    # STEP 4
+    create_o_branch(o_branch)
+
+    # STEP 5
+    generate_files(
+        jira_id,
+        requirement,
+        impacts
+    )
+
+    # STEP 6
+    commit_changes(jira_id)
+
+    # STEP 7
+    push_o_branch(o_branch)
+
+    # STEP 8
+    create_pull_request(
+        o_branch,
+        u_branch,
+        jira_id
+    )
+
+    banner("PROCESS COMPLETED")
+
+    print(f"\nO Branch => {o_branch}")
+    print(f"U Branch => {u_branch}")
+
+# =========================================================
+
+if __name__ == "__main__":
+    main()
